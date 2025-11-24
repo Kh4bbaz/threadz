@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Threadz — Anonymous Imageboard</title>
+<style>
+:root {
+  --bg:#0f1724; --card:#0b1220; --muted:#9aa4b2; --accent:#7dd3fc; --glass:rgba(255,255,255,0.03);
+}
+body {
+  margin:0; font-family:Inter,system-ui,Arial,sans-serif; background:linear-gradient(180deg,#071026 0%,#081225 100%); color:#e6eef6;
+}
+.app {max-width:1100px; margin:28px auto; padding:20px;}
+header {display:flex; flex-direction:column; gap:6px;}
+header h1 {margin:0; font-size:24px;}
+header .rules {font-size:12px; color:var(--muted);}
+.layout {display:grid; grid-template-columns:360px 1fr; gap:18px; margin-top:18px;}
+.card {background:var(--card); border-radius:12px; padding:14px; box-shadow:0 6px 18px rgba(2,6,23,0.7);}
+.menu {display:flex; flex-direction:column; gap:12px;}
+.search {display:flex; gap:8px;}
+.search input {flex:1; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit;}
+button {background:var(--accent); border:none; padding:8px 10px; border-radius:8px; cursor:pointer;}
+.thread-list {display:flex; flex-direction:column; gap:12px; margin-top:12px; overflow:auto; max-height:60vh;}
+.thread-item {display:flex; gap:10px; align-items:flex-start; padding:10px; border-radius:10px; background:var(--glass); border:1px solid rgba(255,255,255,0.02);}
+.thumb {width:72px; height:72px; border-radius:6px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:#061221; overflow:hidden;}
+.thumb img {width:100%; height:100%; object-fit:cover;}
+.meta {flex:1;}
+.meta h3 {margin:0; font-size:14px;}
+.meta p {margin:6px 0 0; font-size:12px; color:var(--muted);}
+main {min-height:60vh;}
+.composer {display:flex; flex-direction:column; gap:8px;}
+.composer input[type=text], .composer textarea {width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit;}
+.composer .row {display:flex; gap:8px; align-items:center;}
+.threads-area {display:flex; flex-direction:column; gap:12px;}
+.post {background:linear-gradient(180deg,rgba(255,255,255,0.01),rgba(255,255,255,0.02)); padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,0.03);}
+.post .head {display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+.post img.content-img {max-width:100%; border-radius:8px; margin-top:8px;}
+.small {font-size:12px; color:var(--muted);}
+.thread-header {display:flex; justify-content:space-between; align-items:center;}
+.controls {display:flex; gap:8px;}
+.empty {color:var(--muted); padding:22px; text-align:center; border-radius:8px;}
+footer {margin-top:18px; color:var(--muted); font-size:13px; text-align:center;}
+@media(max-width:900px){.layout{grid-template-columns:1fr;}.thumb{display:none;}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Threadz</h1>
+    <div class="rules">
+      ⚠️ Rules: No sharing personal info, no blackmail or harmful content. Keep it safe. — Threadz AI Moderator
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="card">
+      <div class="menu">
+        <div class="search">
+          <input id="searchInput" placeholder="Search threads..." />
+          <button id="newThreadBtn">New Thread</button>
+        </div>
+        <div class="thread-list card" id="threadList"></div>
+      </div>
+    </aside>
+
+```
+<main>
+  <section class="card">
+    <div class="composer">
+      <div class="row">
+        <input id="postName" placeholder="Name (default: Anonymous)" />
+        <input id="postTitle" placeholder="Thread title (leave empty to reply)" />
+      </div>
+      <textarea id="postContent" rows="4" placeholder="Write your post."></textarea>
+      <div class="row">
+        <input type="file" id="postImage" accept="image/*" />
+        <div id="imagePreview" class="small"></div>
+        <div style="margin-left:auto; display:flex; gap:8px;">
+          <button id="postBtn">Post</button>
+          <button id="clearBtn">Clear</button>
+        </div>
+      </div>
+    </div>
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.03); margin:12px 0" />
+    <div id="threadsArea" class="threads-area"></div>
+  </section>
+</main>
+```
+
+  </div>
+
+  <footer>Posts are stored locally in your browser (localStorage). Use responsibly.</footer>
+</div>
+
+<script>
+const STORAGE_KEY='threadz_v1';
+function uid(p='id'){return p+'_'+Math.random().toString(36).slice(2,9)}
+function now(){return new Date().toISOString()}
+let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"threads":[]}');
+let currentThreadId = null;
+
+const threadListEl = document.getElementById('threadList');
+const threadsArea = document.getElementById('threadsArea');
+const postBtn = document.getElementById('postBtn');
+const clearBtn = document.getElementById('clearBtn');
+const newThreadBtn = document.getElementById('newThreadBtn');
+const postImage = document.getElementById('postImage');
+const imagePreview = document.getElementById('imagePreview');
+const postTitle = document.getElementById('postTitle');
+const postContent = document.getElementById('postContent');
+const postName = document.getElementById('postName');
+const searchInput = document.getElementById('searchInput');
+
+let stagedImageData = null;
+postImage.addEventListener('change', ()=>{
+  const f=postImage.files[0];
+  if(!f){stagedImageData=null;imagePreview.textContent='';return}
+  if(f.size>2_500_000){alert('Image too large (~2.5MB max)'); postImage.value=''; return}
+  const reader=new FileReader();
+  reader.onload=e=>{stagedImageData=e.target.result; imagePreview.textContent=f.name};
+  reader.readAsDataURL(f);
+});
+
+clearBtn.addEventListener('click', ()=>{
+  postTitle.value=''; postContent.value=''; postName.value=''; postImage.value=''; stagedImageData=null; imagePreview.textContent='';
+});
+
+function escapeHtml(str){return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function renderThreads(){
+  threadsArea.innerHTML='';
+  const threads = state.threads.slice().sort((a,b)=>new Date(b.created)-new Date(a.created));
+  if(threads.length===0){threadsArea.innerHTML='<div class="empty">No threads. Start one.</div>'; return;}
+  for(const t of threads){
+    const wrapper=document.createElement('div'); wrapper.className='post';
+    const head=document.createElement('div'); head.className='head';
+    head.innerHTML=`<div class="small"><strong>${t.posts[0].name||'Anonymous'}</strong> · ${new Date(t.created).toLocaleString()}</div><strong>${t.title||'(no title)'}</strong> · ${t.posts.length} posts`;
+    wrapper.appendChild(head);
+    const body=document.createElement('div'); body.style.whiteSpace='pre-wrap'; body.textContent=t.posts[0].content;
+    wrapper.appendChild(body);
+    if(t.posts[0].image){const img=document.createElement('img'); img.className='content-img'; img.src=t.posts[0].image; wrapper.appendChild(img);}
+    threadsArea.appendChild(wrapper);
+  }
+}
+
+postBtn.addEventListener('click', ()=>{
+  const title = postTitle.value.trim();
+  const content = postContent.value.trim();
+  const name = postName.value.trim() || 'Anonymous';
+  if(!content && !stagedImageData){alert('Post must contain text or image'); return;}
+  const thread={id:uid('t'), title, created:now(), posts:[{id:uid('p'), name, content, image:stagedImageData, time:now()}]};
+  state.threads.push(thread);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  postTitle.value=''; postContent.value=''; postName.value=''; postImage.value=''; stagedImageData=null; imagePreview.textContent='';
+  renderThreads();
+});
+
+newThreadBtn.addEventListener('click', ()=>{
+  postTitle.focus();
+});
+
+renderThreads();
+</script>
+
+</html>
